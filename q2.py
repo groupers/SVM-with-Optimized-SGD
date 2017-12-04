@@ -4,6 +4,8 @@ from sklearn.datasets import fetch_mldata
 import matplotlib.pyplot as plt
 
 np.random.seed(1847)
+from numpy import linalg as LA
+from tqdm import tqdm
 
 class BatchSampler(object):
     '''
@@ -101,7 +103,12 @@ class SVM(object):
         Returns a length-n vector containing the hinge-loss per data point.
         '''
         # Implement hinge loss
-        return None
+        current_sum = np.array([0.0 for w in self.w])
+        for i in range(X.shape[0]):
+            current_sum += np.max(1 - y[i] * (np.dot(self.w, X[i])), 0)
+        hinge_loss = 0.5 * LA.norm(self.w)**2 + (self.c/X.shape[0]) * current_sum
+
+        return hinge_loss
 
     def grad(self, X, y):
         '''
@@ -111,7 +118,22 @@ class SVM(object):
         Returns the gradient with respect to the SVM parameters (shape (m,)).
         '''
         # Compute (sub-)gradient of SVM objective
-        return None
+        sub_gradients = self.w
+        sample_size = X.shape[0]
+        feature_size = X.shape[1]
+        gradients = np.zeros(feature_size)
+        for i in range(sample_size):
+            for j in range(feature_size):
+                if y[i] * np.dot(self.w,X[i]) < 1:
+                    part_g = -y[i] * X[i,j]
+                    # Bias
+                    if range_j[-1] == j:
+                        part_g = -y[i]
+                else:
+                    part_g = 0.0
+
+                gradients[j] = gradients[j] + part_g
+        return self.w + (self.c/X.shape[0]) * gradients
 
     def classify(self, X):
         '''
@@ -120,7 +142,15 @@ class SVM(object):
         Returns the predicted class labels (shape (n,))
         '''
         # Classify points as +1 or -1
-        return None
+        all_elems = np.dot(X, self.w)
+        signed = []
+        for i in all_elems:
+            if i <= 0:
+                signed.append(-1)
+            else:
+                signed.append(1)
+
+        return np.array(signed)
 
 def load_data():
     '''
@@ -152,7 +182,23 @@ def optimize_svm(train_data, train_targets, penalty, optimizer, batchsize, iters
     '''
     Optimize the SVM with the given hyperparameters. Return the trained SVM.
     '''
-    return None
+    svm = SVM(penalty, train_data.shape[1])
+    batch_sampler = BatchSampler(train_data, train_targets, batchsize)
+
+    for t in tqdm(range(iters)):
+        batchs = batch_sampler.get_batch()
+        X, y = batchs
+        grad = svm.grad(X, y)
+        mu_previous = 0
+        current_update = optimizer.update_params(svm.w, grad, mu_previous)
+        mu_previous = current_update[1]
+        svm.w = current_update[0]
+    return svm
+
+def plot_weights(w):
+    w = w.reshape(28,28)
+    plt.imshow(w, cmap='gray')
+    plt.show()
 
 if __name__ == '__main__':
     for i in [0, 0.9]:
@@ -164,4 +210,15 @@ if __name__ == '__main__':
     plt.xlabel('Steps')
     plt.legend()
     plt.show()
-    # train_data, trains_targets, test_data, test_targets = load_data()
+
+    train_data, train_targets, test_data, test_targets = load_data()
+
+    for i in [0.0, 0.1]:
+        optimizer = GDOptimizer(0.05, i)
+        Train_plus_one_data = np.column_stack((train_data, np.ones(np.shape(train_data)[0])))
+        Test_plus_one_data = np.column_stack((test_data, np.ones(np.shape(test_data)[0])))
+        svm_op = optimize_svm(Train_plus_one_data, train_targets, 1.0, optimizer, 100, 500)
+        print((svm_op.classify(Train_plus_one_data) == train_targets).mean())
+        print((svm_op.classify(Test_plus_one_data) == test_targets).mean())
+        svm_op.w = svm_op.w[:-1]
+        plot_weights(svm_op.w)
